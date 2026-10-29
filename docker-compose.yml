@@ -1,6 +1,6 @@
 services:
   db:
-    image: postgis/postgis
+    image: postgis/postgis:18-3.6
     environment:
       POSTGRES_DB: ${DB_NAME}
       POSTGRES_USER: ${DB_USER}
@@ -8,7 +8,8 @@ services:
     ports:
       - "${DB_PORT}:5432"
     volumes:
-      - db_data:/var/lib/postgresql/data
+      # Od PostgreSQL 18 wolumen montuje się katalog wyżej, dane trafiają do podkatalogu z numerem wersji
+      - db_data:/var/lib/postgresql
 
 volumes:
   db_data:
