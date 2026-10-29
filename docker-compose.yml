@@ -10,6 +10,8 @@ services:
     volumes:
       # Od PostgreSQL 18 wolumen montuje się katalog wyżej, dane trafiają do podkatalogu z numerem wersji
       - db_data:/var/lib/postgresql
+      # Skrypty SQL dostępne w kontenerze jako /db (psql -f /db/01_schema.sql)
+      - ./db:/db:ro
 
 volumes:
   db_data:
