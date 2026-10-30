@@ -100,3 +100,43 @@ CREATE TABLE favorites (
     created_at timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (user_id, bar_id)
 );
+
+
+-- Wyzwalacz updated_at
+
+-- Ustawia updated_at przy każdej zmianie wiersza, więc backend nie musi o tym pamiętać
+CREATE FUNCTION set_updated_at() RETURNS trigger AS $$
+BEGIN
+    NEW.updated_at := now();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Tylko tabele z kolumną updated_at (favorites i price_confirmations jej nie mają)
+CREATE TRIGGER users_set_updated_at BEFORE UPDATE ON users
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+CREATE TRIGGER user_profiles_set_updated_at BEFORE UPDATE ON user_profiles
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+CREATE TRIGGER bars_set_updated_at BEFORE UPDATE ON bars
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+CREATE TRIGGER drinks_set_updated_at BEFORE UPDATE ON drinks
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+CREATE TRIGGER prices_set_updated_at BEFORE UPDATE ON prices
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+CREATE TRIGGER ratings_set_updated_at BEFORE UPDATE ON ratings
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+
+-- Indeksy
+-- Klucze główne i kolumny UNIQUE mają indeksy automatycznie, tu tylko dodatkowe.
+
+-- Indeks przestrzenny dla ST_DWithin w barach w pobliżu (Q1)
+CREATE INDEX bars_location_idx ON bars USING GIST (location);
+
+-- Wyszukanie najnowszej ceny napoju w barze (v_current_prices)
+CREATE INDEX prices_bar_drink_created_idx ON prices (bar_id, drink_id, created_at DESC);
+
+-- Klucze główne zaczynają się od user_id, więc wyszukiwanie po barze potrzebuje osobnych indeksów
+-- (średnia ocen w v_bar_stats, ulubione w v_top_month)
+CREATE INDEX ratings_bar_id_idx ON ratings (bar_id);
+CREATE INDEX favorites_bar_id_idx ON favorites (bar_id);
