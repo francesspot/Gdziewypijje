@@ -203,3 +203,72 @@ WHERE b.is_active
 GROUP BY b.id, b.name, s.avg_rating
 HAVING count(*) >= 3
 ORDER BY activity DESC, s.avg_rating DESC NULLS LAST;
+
+
+-- Funkcje
+-- Każda robi to samo co odpowiadająca jej transakcja z raportu, ale jednym wywołaniem.
+-- Wywołanie funkcji jest jedną instrukcją, więc wszystkie zapisy w niej wykonują się razem albo wcale.
+-- Błędy dla backendu: duplikat to unique_violation, złe dane to check_violation,
+-- a RAISE EXCEPTION (raise_exception) oznacza wyłączony lub nieistniejący bar, napój albo cenę.
+
+-- T1: konto i profil razem. Zwraca id nowego użytkownika.
+CREATE FUNCTION register_user(p_email text, p_password_hash text, p_display_name text)
+RETURNS integer AS $$
+DECLARE
+    v_user_id integer;
+BEGIN
+    INSERT INTO users (email, password_hash)
+    VALUES (p_email, p_password_hash)
+    RETURNING id INTO v_user_id;
+
+    INSERT INTO user_profiles (user_id, display_name)
+    VALUES (v_user_id, p_display_name);
+
+    RETURN v_user_id;
+END;
+$$ LANGUAGE plpgsql;
+
+-- T2: cena i 5 punktów dla autora razem. Zwraca id nowej ceny.
+CREATE FUNCTION report_price(p_bar_id integer, p_drink_id integer, p_amount numeric, p_reported_by integer)
+RETURNS integer AS $$
+DECLARE
+    v_price_id integer;
+BEGIN
+    -- PU.02: do wyłączonego baru nie można dodać ceny
+    IF NOT EXISTS (SELECT 1 FROM bars WHERE id = p_bar_id AND is_active) THEN
+        RAISE EXCEPTION 'Bar % nie istnieje lub jest wyłączony', p_bar_id;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM drinks WHERE id = p_drink_id AND is_active) THEN
+        RAISE EXCEPTION 'Napój % nie istnieje lub jest wyłączony', p_drink_id;
+    END IF;
+
+    INSERT INTO prices (bar_id, drink_id, amount, reported_by)
+    VALUES (p_bar_id, p_drink_id, p_amount, p_reported_by)
+    RETURNING id INTO v_price_id;
+
+    UPDATE user_profiles SET points = points + 5 WHERE user_id = p_reported_by;
+
+    RETURN v_price_id;
+END;
+$$ LANGUAGE plpgsql;
+
+-- T3: potwierdzenie, nowa data ceny i 1 punkt razem.
+-- Drugie potwierdzenie tej samej ceny przez tę samą osobę blokuje klucz główny price_confirmations.
+-- Przy kind = 'change' zapisuje się tylko sprzeciw: data ceny się nie odświeża i nie ma punktu,
+-- bo nową cenę użytkownik zgłasza osobno przez report_price (PU.03, ścieżka 2b).
+CREATE FUNCTION confirm_price(p_price_id integer, p_user_id integer, p_kind text DEFAULT 'confirm')
+RETURNS void AS $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM prices WHERE id = p_price_id AND is_active) THEN
+        RAISE EXCEPTION 'Cena % nie istnieje lub jest wyłączona', p_price_id;
+    END IF;
+
+    INSERT INTO price_confirmations (price_id, user_id, kind)
+    VALUES (p_price_id, p_user_id, p_kind);
+
+    IF p_kind = 'confirm' THEN
+        UPDATE prices SET last_confirmed_at = now() WHERE id = p_price_id;
+        UPDATE user_profiles SET points = points + 1 WHERE user_id = p_user_id;
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
