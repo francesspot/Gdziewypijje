@@ -140,3 +140,66 @@ CREATE INDEX prices_bar_drink_created_idx ON prices (bar_id, drink_id, created_a
 -- (średnia ocen w v_bar_stats, ulubione w v_top_month)
 CREATE INDEX ratings_bar_id_idx ON ratings (bar_id);
 CREATE INDEX favorites_bar_id_idx ON favorites (bar_id);
+
+
+-- Widoki
+
+-- Statystyki ocen każdego aktywnego baru (Q1, Q2).
+-- weighted_score to średnia ważona liczbą głosów: do ocen baru dolicza się 5 „wirtualnych” ocen 3
+-- (środek skali). Przy kilku głosach wynik jest bliski 3, przy wielu bliski średniej baru,
+-- więc bar z jedną piątką (3,33) nie wyprzedzi baru z dziesięcioma ocenami o średniej 4,5 (4,00).
+-- Bar bez ocen ma avg_rating i weighted_score równe NULL oraz ratings_count = 0.
+CREATE VIEW v_bar_stats AS
+SELECT b.id                                                   AS bar_id,
+       round(avg(r.value), 2)                                 AS avg_rating,
+       count(r.value)                                         AS ratings_count,
+       round((sum(r.value) + 5 * 3) / (count(r.value) + 5.0), 2) AS weighted_score
+FROM bars b
+LEFT JOIN ratings r ON r.bar_id = b.id AND r.is_active
+WHERE b.is_active
+GROUP BY b.id;
+
+-- Aktualna cena każdego napoju w barze: najnowszy aktywny wpis z historii.
+-- Wyłączenie najnowszej ceny sprawia, że aktualna staje się poprzednia (diagram stanów ceny).
+-- DISTINCT ON zostawia pierwszy wiersz z każdej pary (bar_id, drink_id) według ORDER BY.
+CREATE VIEW v_current_prices AS
+SELECT DISTINCT ON (p.bar_id, p.drink_id)
+       p.id                                                 AS price_id,
+       p.bar_id,
+       p.drink_id,
+       d.name                                               AS drink_name,
+       d.category,
+       d.volume_ml,
+       p.amount,
+       p.created_at,
+       p.last_confirmed_at,
+       p.last_confirmed_at < now() - interval '90 days'     AS needs_verification
+FROM prices p
+JOIN drinks d ON d.id = p.drink_id
+JOIN bars b ON b.id = p.bar_id
+WHERE p.is_active AND d.is_active AND b.is_active
+ORDER BY p.bar_id, p.drink_id, p.created_at DESC, p.id DESC;
+
+-- Najpopularniejsze bary bieżącego miesiąca (Q3): oceny dodane lub zmienione w tym miesiącu
+-- plus dodania do ulubionych. Bar musi mieć co najmniej 3 zdarzenia, przy remisie decyduje średnia ocena.
+-- updated_at oceny jest równe created_at przy dodaniu, więc jeden warunek obejmuje dodanie i zmianę.
+-- Początek miesiąca liczony w czasie polskim, a nie w UTC serwera.
+CREATE VIEW v_top_month AS
+WITH events AS (
+    SELECT bar_id FROM ratings
+    WHERE is_active AND updated_at >= date_trunc('month', now(), 'Europe/Warsaw')
+    UNION ALL
+    SELECT bar_id FROM favorites
+    WHERE created_at >= date_trunc('month', now(), 'Europe/Warsaw')
+)
+SELECT b.id       AS bar_id,
+       b.name,
+       count(*)   AS activity,
+       s.avg_rating
+FROM events e
+JOIN bars b ON b.id = e.bar_id
+JOIN v_bar_stats s ON s.bar_id = b.id
+WHERE b.is_active
+GROUP BY b.id, b.name, s.avg_rating
+HAVING count(*) >= 3
+ORDER BY activity DESC, s.avg_rating DESC NULLS LAST;
