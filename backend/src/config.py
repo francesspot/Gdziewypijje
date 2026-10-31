@@ -14,6 +14,10 @@ class Settings(BaseSettings):
     db_user: str
     db_password: str
 
+    # Klucz podpisu tokenów logowania i czas ich ważności (domyślnie doba)
+    jwt_secret: str
+    jwt_expire_minutes: int = 1440
+
 
 # Ustawienia wczytywane raz, przy pierwszym użyciu, a nie przy imporcie modułu
 @lru_cache
