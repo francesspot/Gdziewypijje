@@ -1,25 +1,13 @@
-# Ścieżki kont: rejestracja (PU.01) i logowanie.
+# Ścieżki kont: rejestracja (PU.01), logowanie i dane zalogowanego użytkownika.
 import psycopg
 from fastapi import APIRouter, Depends, HTTPException
 
+from src.api.dependencies import fetch_user, get_current_user
 from src.db.connection import get_connection
-from src.schemas.accounts import LoginRequest, RegisterRequest, TokenResponse
+from src.schemas.accounts import LoginRequest, RegisterRequest, TokenResponse, UserResponse
 from src.security import create_access_token, hash_password, verify_password
 
 router = APIRouter(prefix="/auth", tags=["accounts"])
-
-
-def fetch_user(conn: psycopg.Connection, user_id: int) -> dict | None:
-    # Konto razem z profilem (relacja 1:1), bez hasha hasła
-    return conn.execute(
-        """
-        SELECT u.id, u.email, u.role, p.display_name
-        FROM users u
-        JOIN user_profiles p ON p.user_id = u.id
-        WHERE u.id = %s AND u.is_active
-        """,
-        (user_id,),
-    ).fetchone()
 
 
 @router.post("/register", status_code=201, response_model=TokenResponse)
@@ -47,3 +35,8 @@ def login(data: LoginRequest, conn: psycopg.Connection = Depends(get_connection)
     if row is None or not verify_password(data.password, row["password_hash"]):
         raise HTTPException(status_code=401, detail="Nieprawidłowy e-mail lub hasło")
     return {"access_token": create_access_token(row["id"]), "user": fetch_user(conn, row["id"])}
+
+
+@router.get("/me", response_model=UserResponse)
+def me(user: dict = Depends(get_current_user)) -> dict:
+    return user

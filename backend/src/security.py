@@ -27,3 +27,17 @@ def create_access_token(user_id: int) -> str:
     # sub: id użytkownika (JWT wymaga tekstu), exp: data wygaśnięcia sprawdzana przy odczycie tokenu
     payload = {"sub": str(user_id), "exp": expires_at}
     return jwt.encode(payload, settings.jwt_secret, algorithm=JWT_ALGORITHM)
+
+
+def decode_access_token(token: str) -> int | None:
+    # Zwraca id użytkownika albo None, gdy token jest podrobiony, uszkodzony lub wygasł
+    try:
+        payload = jwt.decode(
+            token,
+            get_settings().jwt_secret,
+            algorithms=[JWT_ALGORITHM],
+            options={"require": ["sub", "exp"]},
+        )
+    except jwt.InvalidTokenError:
+        return None
+    return int(payload["sub"])
